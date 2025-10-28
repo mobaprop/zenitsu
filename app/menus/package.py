@@ -1,3 +1,4 @@
+import time
 import json
 import sys
 
@@ -152,6 +153,7 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
         print("6. QRIS + Decoy (+1K)")
         print("7. QRIS + Decoy V2")
         print("8. Pulsa N kali")
+        print("9. Dekocoy")
         # print("9. Debug Share Package")
 
         # Sometimes payment_for is empty, so we set default to BUY_PACKAGE
@@ -470,6 +472,158 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
                 pause_on_success=False,
                 token_confirmation_idx=1
             )
+            elif choice == '9':
+            # Opsi 9: Kloning Opsi 5 (Pulsa + Decoy B V2) + Loop N Kali
+            
+            # --- Mengambil input dari user ---
+            print("Mode: Pulsa N kali (Kloning Opsi 5)")
+            n_times_str = input("Enter number of times to purchase (e.g., 3): ").strip()
+            delay_seconds_str = input("Enter delay between purchases in seconds (e.g., 25): ").strip()
+            
+            if not delay_seconds_str.isdigit():
+                delay_seconds_str = "0"
+            delay_seconds = int(delay_seconds_str)
+            
+            try:
+                n_times = int(n_times_str)
+                if n_times < 1:
+                    raise ValueError("Number must be at least 1.")
+            except ValueError:
+                print("Invalid number entered. Please enter a valid integer.")
+                pause()
+                continue # Kembali ke menu
+
+            # --- Mengambil data Decoy (Logika kloning dari Opsi 5) ---
+            url = "https://me.mashu.lol/pg-decoy-b.json"
+            try:
+                response = requests.get(url, timeout=30)
+                if response.status_code != 200:
+                    print("Gagal mengambil data decoy package.")
+                    pause()
+                    continue
+                decoy_data = response.json()
+            except Exception as e:
+                print(f"Gagal mengambil URL decoy: {e}")
+                pause()
+                continue
+
+            successful_purchases = 0
+            print("-------------------------------------------------------")
+
+            # --- Memulai Perulangan (Loop) Pembelian ---
+            for i in range(n_times):
+                print(f"Membeli {i + 1} dari {n_times}...")
+                
+                # REFRESH TOKEN (Target): Ambil detail paket target saat ini
+                # Variabel 'package_option_code' tersedia dari scope 'show_package_details'
+                current_package_details = get_package(api_key, tokens, package_option_code)
+                if not current_package_details:
+                    print("Gagal me-refresh detail paket target. Melewati...")
+                    if i < n_times - 1 and delay_seconds > 0:
+                        print(f"Waiting for {delay_seconds} seconds...")
+                        time.sleep(delay_seconds)
+                    continue
+                
+                # Mengambil detail baru
+                fresh_target_token = current_package_details["token_confirmation"]
+                fresh_target_price = current_package_details["package_option"]["price"]
+                # Variabel 'variant_name' dan 'option_name' juga ada di scope atas
+                fresh_target_name = f"{variant_name} {option_name}".strip() 
+
+                # Buat payment_items baru (Logika kloning dari Opsi 5)
+                payment_items = [
+                    PaymentItem(
+                        item_code=package_option_code, 
+                        product_type="",
+                        item_price=fresh_target_price,
+                        item_name=fresh_target_name,
+                        tax=0,
+                        token_confirmation=fresh_target_token, # Token baru
+                    )
+                ]
+                
+                # REFRESH TOKEN (Decoy): Ambil detail decoy baru (Logika kloning dari Opsi 5)
+                decoy_package_detail = get_package_details(
+                    api_key,
+                    tokens,
+                    decoy_data["family_code"],
+                    decoy_data["variant_code"],
+                    decoy_data["order"],
+                    decoy_data["is_enterprise"],
+                    decoy_data["migration_type"],
+                )
+                if not decoy_package_detail:
+                    print("Gagal me-refresh detail paket decoy. Melewati...")
+                    if i < n_times - 1 and delay_seconds > 0:
+                        print(f"Waiting for {delay_seconds} seconds...")
+                        time.sleep(delay_seconds)
+                    continue
+
+                # Tambah decoy ke payment_items (Logika kloning dari Opsi 5)
+                payment_items.append(
+                    PaymentItem(
+                        item_code=decoy_package_detail["package_option"]["package_option_code"],
+                        product_type="",
+                        item_price=decoy_package_detail["package_option"]["price"],
+                        item_name=decoy_package_detail["package_option"]["name"],
+                        tax=0,
+                        token_confirmation=decoy_package_detail["token_confirmation"],
+                    )
+                )
+
+                # Kalkulasi overwrite_amount (Logika kloning dari Opsi 5)
+                overwrite_amount = fresh_target_price + decoy_package_detail["package_option"]["price"]
+                
+                # Panggil settlement_balance (Logika kloning dari Opsi 5)
+                res = settlement_balance(
+                    api_key,
+                    tokens,
+                    payment_items,
+                    "🤫", # V2 Logic
+                    False,
+                    overwrite_amount=overwrite_amount,
+                    token_confirmation_idx=1 # V2 Logic
+                )
+                
+                # Logika Error Handling (Logika kloning dari Opsi 5)
+                if res and res.get("status", "") == "SUCCESS":
+                    print("Purchase successful!")
+                    successful_purchases += 1
+                else:
+                    error_msg = res.get("message", "Unknown error")
+                    if "Bizz-err.Amount.Total" in error_msg:
+                        error_msg_arr = error_msg.split("=")
+                        valid_amount = int(error_msg_arr[1].strip())
+                        print(f"Adjusted total amount to: {valid_amount}")
+                        
+                        res_adjust = settlement_balance(
+                            api_key,
+                            tokens,
+                            payment_items,
+                            "🤫",
+                            False,
+                            overwrite_amount=valid_amount,
+                            token_confirmation_idx=-1 # Fallback
+                        )
+                        if res_adjust and res_adjust.get("status", "") == "SUCCESS":
+                            print("Purchase successful (after adjust)!")
+                            successful_purchases += 1
+                        else:
+                            print(f"Purchase failed after adjust: {res_adjust.get('message', 'Unknown error')}")
+                    else:
+                        print(f"Purchase failed: {error_msg}")
+                
+                print("-------------------------------------------------------")
+
+                # Logika Delay (dari Opsi 8)
+                if i < n_times - 1 and delay_seconds > 0:
+                    print(f"Waiting for {delay_seconds} seconds...")
+                    time.sleep(delay_seconds)
+
+            # Selesai loop
+            print(f"Selesai: {successful_purchases} / {n_times} pembelian berhasil.")
+            pause()
+            continue # Kembali ke menu
         elif choice == '9':
             pin = input("Enter PIN: ")
             if len(pin) != 6:
