@@ -153,7 +153,8 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
         print("6. QRIS + Decoy (+1K)")
         print("7. QRIS + Decoy V2")
         print("8. Pulsa N kali")
-        print("9. Dekocoy")
+        print("9. Pulsa N kali (Kloning Opsi 5 - Loop V2)")
+        print("10. Dekocoy")
         # print("9. Debug Share Package")
 
         # Sometimes payment_for is empty, so we set default to BUY_PACKAGE
@@ -446,7 +447,7 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
             input("Silahkan lakukan pembayaran & cek hasil pembelian di aplikasi MyXL. Tekan Enter untuk kembali.")
             return True
         elif choice == '8':
-            #Pulsa N kali
+            #Pulsa N kali (simple)
             use_decoy_for_n_times = input("Use decoy package? (y/n): ").strip().lower() == 'y'
             n_times_str = input("Enter number of times to purchase (e.g., 3): ").strip()
 
@@ -472,7 +473,8 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
                 pause_on_success=False,
                 token_confirmation_idx=1
             )
-            elif choice == '9':
+            continue
+        elif choice == '9':
             # Opsi 9: Kloning Opsi 5 (Pulsa + Decoy B V2) + Loop N Kali
             
             # --- Mengambil input dari user ---
@@ -531,7 +533,7 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
                 fresh_target_name = f"{variant_name} {option_name}".strip() 
 
                 # Buat payment_items baru (Logika kloning dari Opsi 5)
-                payment_items = [
+                payment_items_loop = [
                     PaymentItem(
                         item_code=package_option_code, 
                         product_type="",
@@ -560,7 +562,7 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
                     continue
 
                 # Tambah decoy ke payment_items (Logika kloning dari Opsi 5)
-                payment_items.append(
+                payment_items_loop.append(
                     PaymentItem(
                         item_code=decoy_package_detail["package_option"]["package_option_code"],
                         product_type="",
@@ -578,7 +580,7 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
                 res = settlement_balance(
                     api_key,
                     tokens,
-                    payment_items,
+                    payment_items_loop,
                     "🤫", # V2 Logic
                     False,
                     overwrite_amount=overwrite_amount,
@@ -590,26 +592,32 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
                     print("Purchase successful!")
                     successful_purchases += 1
                 else:
-                    error_msg = res.get("message", "Unknown error")
+                    error_msg = (res or {}).get("message", "Unknown error")
                     if "Bizz-err.Amount.Total" in error_msg:
                         error_msg_arr = error_msg.split("=")
-                        valid_amount = int(error_msg_arr[1].strip())
-                        print(f"Adjusted total amount to: {valid_amount}")
-                        
-                        res_adjust = settlement_balance(
-                            api_key,
-                            tokens,
-                            payment_items,
-                            "🤫",
-                            False,
-                            overwrite_amount=valid_amount,
-                            token_confirmation_idx=-1 # Fallback
-                        )
-                        if res_adjust and res_adjust.get("status", "") == "SUCCESS":
-                            print("Purchase successful (after adjust)!")
-                            successful_purchases += 1
+                        try:
+                            valid_amount = int(error_msg_arr[1].strip())
+                        except Exception:
+                            valid_amount = None
+                        if valid_amount is not None:
+                            print(f"Adjusted total amount to: {valid_amount}")
+                            
+                            res_adjust = settlement_balance(
+                                api_key,
+                                tokens,
+                                payment_items_loop,
+                                "🤫",
+                                False,
+                                overwrite_amount=valid_amount,
+                                token_confirmation_idx=-1 # Fallback
+                            )
+                            if res_adjust and res_adjust.get("status", "") == "SUCCESS":
+                                print("Purchase successful (after adjust)!")
+                                successful_purchases += 1
+                            else:
+                                print(f"Purchase failed after adjust: {(res_adjust or {}).get('message', 'Unknown error')}")
                         else:
-                            print(f"Purchase failed after adjust: {res_adjust.get('message', 'Unknown error')}")
+                            print(f"Purchase failed: {error_msg}")
                     else:
                         print(f"Purchase failed: {error_msg}")
                 
@@ -624,7 +632,7 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
             print(f"Selesai: {successful_purchases} / {n_times} pembelian berhasil.")
             pause()
             continue # Kembali ke menu
-        elif choice == '9':
+        elif choice == '10':
             pin = input("Enter PIN: ")
             if len(pin) != 6:
                 print("PIN too short.")
@@ -660,17 +668,6 @@ def show_package_details(api_key, tokens, package_option_code, is_enterprise, op
                 decoy_data["is_enterprise"],
                 decoy_data["migration_type"],
             )
-
-            # payment_items.append(
-            #     PaymentItem(
-            #         item_code=decoy_package_detail["package_option"]["package_option_code"],
-            #         product_type="",
-            #         item_price=decoy_package_detail["package_option"]["price"],
-            #         item_name=decoy_package_detail["package_option"]["name"],
-            #         tax=0,
-            #         token_confirmation=decoy_package_detail["token_confirmation"],
-            #     )
-            # )
 
             overwrite_amount = price + decoy_package_detail["package_option"]["price"]
             res = show_qris_payment(
